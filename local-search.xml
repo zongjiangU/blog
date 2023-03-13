@@ -4,6 +4,31 @@
   
   
   <entry>
+    <title>记一次ebpf的for循环问题</title>
+    <link href="/2023/03/13/%E8%AE%B0%E4%B8%80%E6%AC%A1ebpf%E7%9A%84for%E5%BE%AA%E7%8E%AF%E9%97%AE%E9%A2%98/"/>
+    <url>/2023/03/13/%E8%AE%B0%E4%B8%80%E6%AC%A1ebpf%E7%9A%84for%E5%BE%AA%E7%8E%AF%E9%97%AE%E9%A2%98/</url>
+    
+    <content type="html"><![CDATA[<h1 id="记一次ebpf的for循环问题"><a href="#记一次ebpf的for循环问题" class="headerlink" title="记一次ebpf的for循环问题"></a>记一次ebpf的for循环问题</h1><h3 id="起因"><a href="#起因" class="headerlink" title="起因"></a>起因</h3><p>一段BCC开发的uprobe代码中包含一个for循环，在redhat 4.18上可以运行，在redhat 3.10上无法正常运行。<br>在kernel verifier部分检测出存在for循环。<br>Code:</p><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><code class="hljs c"><span class="hljs-keyword">for</span>(u64 i = <span class="hljs-number">0</span>; i &lt; (MAX_STACK_SIZE - <span class="hljs-number">1</span>); i++)&#123;<br>        <span class="hljs-keyword">if</span>(i &gt;= stack_size) <span class="hljs-keyword">break</span>;<br>        lock = GET_LOCK_PTR_FROM_STATS_PTR_DEADLOCK(start_ptr);<br>        wait_lock = GET_WAIT_LOCK_PTR_FROM_STATS_PTR_DEADLOCK(start_ptr);<br>        get_dead_lock_data_from_lock_ptr(lock,&amp;s_stats_item.lock);<br>        get_dead_lock_data_from_lock_ptr(wait_lock,&amp;s_stats_item.wait_lock);<br>        bpf_probe_read_user(&amp;s_stats_item.heap_no,<span class="hljs-keyword">sizeof</span>(u64),GET_HEAP_NO_PTR_FROM_STATS_PTR_DEADLOCK(start_ptr));<br>        dead_lock_checker_stack.update(&amp;end,&amp;s_stats_item);<br>        end = (end + <span class="hljs-number">1</span>)%BPF_HASH_NORMAL;<br>        start_ptr += <span class="hljs-keyword">sizeof</span>(COM_STATS_T_PTR);<br>    &#125;<br></code></pre></td></tr></table></figure><figure class="highlight applescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs applescript"><span class="hljs-keyword">back</span>-edge <span class="hljs-keyword">from</span> insn <span class="hljs-number">1024</span> <span class="hljs-keyword">to</span> <span class="hljs-number">1003</span> <br></code></pre></td></tr></table></figure><h3 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h3><p><strong>为什么在4.18上可以运行，但在3.10上无法运行？</strong></p><blockquote><p>高版本kernel中允许ebpf代码中存在有限for循环，而3.10中不允许任何循环的存在</p></blockquote><p><strong>该如何解决3.10无法运行问题？</strong></p><blockquote><p>让for循环在编译阶段展开</p></blockquote><p>尝试使用 <code>#pragma unroll</code> 以及 <code>ebpf::BPF init</code>添加 编译参数<code>-funroll-loops</code>均未解决问题</p><p>尝试从BCC中获取更多的信息，debug模式重编BCC并安装 (非源码安装可以直接安装debug-info)</p><p>再次运行包含for循环的代码，发现报错如下:</p><figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs pgsql"><span class="hljs-keyword">loop</span> <span class="hljs-keyword">not</span> unrolled: the optimizer was unable <span class="hljs-keyword">to</span> <span class="hljs-keyword">perform</span> the requested transformation; the transformation might be disabled <span class="hljs-keyword">or</span> specified <span class="hljs-keyword">as</span> part <span class="hljs-keyword">of</span> an unsupported transformation ordering<br></code></pre></td></tr></table></figure><p>无论是通过添加伪编译指令 <code>#pragma unroll</code> 以及 增加编译参数 <code>-funroll-loops</code> 实际上并没有展开循环.</p><p><strong>实际上,上述两种方式均是建议clang编译器进行编译优化展开循环，但由于展开后的字节码大小过大，编译器拒绝了我的展开建议.</strong></p><h3 id="解决方案"><a href="#解决方案" class="headerlink" title="解决方案"></a>解决方案</h3><p><strong>使用<code>#pragma unroll(16)</code>指定clang展开for循环的次数</strong></p><h3 id="建议"><a href="#建议" class="headerlink" title="建议"></a>建议</h3><ul><li>for循环在编译阶段就要确定是有限for循环</li><li>循环体内代码尽量精简(避免声明局部变量等)，减少单次循环的指令数量</li></ul>]]></content>
+    
+    
+    <categories>
+      
+      <category>ebpf</category>
+      
+    </categories>
+    
+    
+    <tags>
+      
+      <tag>原创</tag>
+      
+    </tags>
+    
+  </entry>
+  
+  
+  
+  <entry>
     <title>BCC在mysqld端的应用性能测评</title>
     <link href="/2023/02/28/BCC%E5%9C%A8mysqld%E7%AB%AF%E7%9A%84%E5%BA%94%E7%94%A8%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%84/"/>
     <url>/2023/02/28/BCC%E5%9C%A8mysqld%E7%AB%AF%E7%9A%84%E5%BA%94%E7%94%A8%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%84/</url>
